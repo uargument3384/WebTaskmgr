@@ -20,7 +20,7 @@ $APP_CONFIG = [
   'PASSWORD_HASH' => null,
   'IP_ALLOW'      => array (
 ),
-  'RUN_AS_ROOT'   => true,
+  'RUN_AS_ROOT'   => false,
 ];
 // === APP_CONFIG_END ===
 
