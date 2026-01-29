@@ -1,5 +1,4 @@
 <?php
-
 /////////////////////////////////////////////////
   /*!
    * WebTaskmgr / ATK-FM v2.0.1
@@ -10,12 +9,18 @@
    * Released under the MIT License
   */
 /////////////////////////////////////////////////
-
+// 削除非推奨　ここで修正しているため。
+if (!function_exists('str_starts_with')) {
+    function str_starts_with($haystack, $needle) {
+        return (string)$needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
+    }
+}
 // === APP_CONFIG_START ===
 $APP_CONFIG = [
-  "PASSWORD_HASH" => null,
-  "IP_ALLOW" => [],
-  "RUN_AS_ROOT" => false,
+  'PASSWORD_HASH' => null,
+  'IP_ALLOW'      => array (
+),
+  'RUN_AS_ROOT'   => true,
 ];
 // === APP_CONFIG_END ===
 
@@ -3185,21 +3190,27 @@ const state = {
   fmInit: false
 };
 
+// ヘルパー関数: Null合体演算子 (??) と オプショナルチェーン (?.) の代替
+function _nc(val, fallback) {
+  return (val !== null && val !== undefined) ? val : fallback;
+}
+
 // CSRF
 (() => {
   const orig = window.fetch;
   window.fetch = function(input, init) {
     init = init || {};
-    const url = (typeof input === 'string') ? input : (input?.url || '');
-    const sameOrigin = !/^https?:\/\//i.test(url) || url.startsWith(location.origin);
+    // ?. の修正
+    const url = (typeof input === 'string') ? input : ((input && input.url) || '');
+    const sameOrigin = !/^https?:\/\//i.test(url) || url.indexOf(location.origin) === 0;
     const method = (init.method || 'GET').toUpperCase();
 
     if (sameOrigin && method !== 'GET' && method !== 'HEAD') {
-      const ck = document.cookie.split('; ').find(s => s.startsWith('ATKFM_CSRF='));
+      const ck = document.cookie.split('; ').find(s => s.trim().indexOf('ATKFM_CSRF=') === 0);
       if (ck) {
         const val = decodeURIComponent(ck.split('=').slice(1).join('='));
         if (val) {
-          if (init.headers instanceof Headers) {
+          if (window.Headers && init.headers instanceof Headers) {
             init.headers.set('X-CSRF-Token', val);
           } else {
             init.headers = init.headers || {};
@@ -3219,6 +3230,8 @@ const fmtMiB = kb => (kb==null) ? '--' : (kb/1024).toFixed(1)+' MiB';
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 
 function utf8ToBase64(str){
+  // TextEncoderが使えない環境向けフォールバックは省略(iOS12ならTextEncoderはある)
+  if (typeof TextEncoder === 'undefined') return btoa(unescape(encodeURIComponent(str)));
   const bytes = new TextEncoder().encode(str);
   let bin = '';
   for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
@@ -3226,6 +3239,7 @@ function utf8ToBase64(str){
 }
 function base64ToUtf8(b64){
   const bin = atob(b64);
+  if (typeof TextDecoder === 'undefined') return decodeURIComponent(escape(bin));
   const bytes = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
   return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
@@ -3236,17 +3250,18 @@ function ringPush(arr, v, maxN) {
   if (arr.length > maxN) arr.shift();
 }
 
-function drawLine(canvas, data, yMaxHint = null) {
+function drawLine(canvas, data, yMaxHint) {
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
-  const W = canvas.width = canvas.clientWidth * window.devicePixelRatio;
-  const H = canvas.height = canvas.clientHeight * window.devicePixelRatio;
+  const W = canvas.width = canvas.clientWidth * (window.devicePixelRatio || 1);
+  const H = canvas.height = canvas.clientHeight * (window.devicePixelRatio || 1);
   ctx.clearRect(0, 0, W, H);
 
   const N = data.length;
   if (N === 0) return;
 
-  const yMax = yMaxHint ?? Math.max(100, Math.max(...data.filter(x => isFinite(x))));
+  // ?? の修正
+  const yMax = _nc(yMaxHint, Math.max(100, Math.max(...data.filter(x => isFinite(x)))));
   const yMin = 0;
 
   ctx.strokeStyle = '#334155';
@@ -3287,7 +3302,8 @@ function computeCpuPct(prev, curr) {
 }
 
 function escapeHtml(s) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
+  // ?? の修正
+  return String(_nc(s, '')).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[c]));
 }
 
 // タブ切り替えの処理
@@ -3303,11 +3319,11 @@ const pageFiles = document.getElementById('pageFiles');
 const pageTerminal = document.getElementById('pageTerminal');
 const pageSettings = document.getElementById('pageSettings');
 
-tabOverview.addEventListener('click', () => setTab('overview'));
-tabProcs.addEventListener('click', () => setTab('procs'));
-tabFiles.addEventListener('click', () => setTab('files'));
-tabTerminal.addEventListener('click', () => setTab('terminal'));
-tabSettings.addEventListener('click', () => setTab('settings'));
+if(tabOverview) tabOverview.addEventListener('click', () => setTab('overview'));
+if(tabProcs) tabProcs.addEventListener('click', () => setTab('procs'));
+if(tabFiles) tabFiles.addEventListener('click', () => setTab('files'));
+if(tabTerminal) tabTerminal.addEventListener('click', () => setTab('terminal'));
+if(tabSettings) tabSettings.addEventListener('click', () => setTab('settings'));
 
 function abortInFlight() {
   if (state.controller) {
@@ -3327,22 +3343,33 @@ function tabFromHash() {
 function setTab(t) {
   state.activeTab = t;
 
-  for (const [btn, on] of [
+  const tabs = [
     [tabOverview, t === 'overview'],
     [tabProcs,    t === 'procs'],
     [tabFiles,    t === 'files'],
     [tabTerminal, t === 'terminal'],
     [tabSettings, t === 'settings']
-  ]) {
-    btn.classList.toggle('bg-blue-600', on);
-    btn.classList.toggle('bg-slate-700', !on);
+  ];
+  
+  for (var i=0; i<tabs.length; i++) {
+    const btn = tabs[i][0];
+    const on = tabs[i][1];
+    if(btn) {
+      if(on) {
+        btn.classList.add('bg-blue-600');
+        btn.classList.remove('bg-slate-700');
+      } else {
+        btn.classList.remove('bg-blue-600');
+        btn.classList.add('bg-slate-700');
+      }
+    }
   }
 
-  pageOverview.classList.toggle('hidden', t !== 'overview');
-  pageProcs.classList.toggle('hidden',    t !== 'procs');
-  pageFiles.classList.toggle('hidden',    t !== 'files');
-  pageTerminal.classList.toggle('hidden', t !== 'terminal');
-  pageSettings.classList.toggle('hidden', t !== 'settings');
+  if(pageOverview) pageOverview.classList.toggle('hidden', t !== 'overview');
+  if(pageProcs) pageProcs.classList.toggle('hidden',    t !== 'procs');
+  if(pageFiles) pageFiles.classList.toggle('hidden',    t !== 'files');
+  if(pageTerminal) pageTerminal.classList.toggle('hidden', t !== 'terminal');
+  if(pageSettings) pageSettings.classList.toggle('hidden', t !== 'settings');
 
   if (t === 'files' || t === 'settings' || t === 'terminal') {
     abortInFlight();
@@ -3419,12 +3446,13 @@ function renderStaticSpecs() {
     ['Disk', STATIC_INFO.Disk],
   ];
 
-  sysSpec.innerHTML = '';
-
-  for (const [k, v] of entries) {
-    const div = document.createElement('div');
-    div.innerHTML = `<div class="text-xs text-slate-400">${escapeHtml(k)}</div><div class="mono break-words">${escapeHtml(v || '--')}</div>`;
-    sysSpec.appendChild(div);
+  if(sysSpec) {
+    sysSpec.innerHTML = '';
+    for (const [k, v] of entries) {
+      const div = document.createElement('div');
+      div.innerHTML = `<div class="text-xs text-slate-400">${escapeHtml(k)}</div><div class="mono break-words">${escapeHtml(v || '--')}</div>`;
+      sysSpec.appendChild(div);
+    }
   }
 }
 
@@ -3439,16 +3467,22 @@ function restartPolling() {
 async function tick() {
   if (state.inFlight) return;
   state.inFlight = true;
-  state.controller = new AbortController();
-  const { signal } = state.controller;
+  if(typeof AbortController !== 'undefined') {
+      state.controller = new AbortController();
+  }
+  const signal = state.controller ? state.controller.signal : null;
 
   try {
     if (state.activeTab === 'overview') {
-      const res = await fetch('?action=summary', { cache: 'no-store', signal });
+      const opts = { cache: 'no-store' };
+      if(signal) opts.signal = signal;
+      const res = await fetch('?action=summary', opts);
       const j = await res.json();
       if (j.ok) renderOverview(j);
     } else if (state.activeTab === 'procs') {
-      const res = await fetch('?action=processes', { cache: 'no-store', signal });
+      const opts = { cache: 'no-store' };
+      if(signal) opts.signal = signal;
+      const res = await fetch('?action=processes', opts);
       const j = await res.json();
       if (j.ok) {
         state.procs = j.processes || [];
@@ -3476,79 +3510,85 @@ const gpuSummary = document.getElementById('gpuSummary');
 const gpuCharts = document.getElementById('gpuCharts');
 
 function renderOverview(j) {
-  platformText.textContent = `(c) 2025 ActiveTK. Released under the MIT License. - ${j.platform} @ ${new Date(j.timestamp * 1000).toLocaleTimeString()}`;
+  if(platformText) platformText.textContent = `(c) 2025 ActiveTK. Released under the MIT License. - ${j.platform} @ ${new Date(j.timestamp * 1000).toLocaleTimeString()}`;
 
-  const total = j.cpu?.total || null;
-  const cores = j.cpu?.cores || [];
+  // ?. ?? の修正
+  const total = (j.cpu && j.cpu.total) || null;
+  const cores = (j.cpu && j.cpu.cores) || [];
 
-  cpuModel.textContent = j.cpu?.model || '';
+  if(cpuModel) cpuModel.textContent = (j.cpu && j.cpu.model) || '';
 
   let totalPct = null;
   if (state.lastCpu) totalPct = computeCpuPct(state.lastCpu.total, total);
 
   state.lastCpuPrev = { total, cores };
-  coresGrid.innerHTML = '';
+  if(coresGrid) {
+    coresGrid.innerHTML = '';
+    const prevCores = (state.lastCpu && state.lastCpu.cores) || [];
+    for (let i = 0; i < cores.length; i++) {
+      let pct = null;
+      if (prevCores[i]) pct = computeCpuPct(prevCores[i], cores[i]);
 
-  const prevCores = state.lastCpu?.cores || [];
-  for (let i = 0; i < cores.length; i++) {
-    let pct = null;
-    if (prevCores[i]) pct = computeCpuPct(prevCores[i], cores[i]);
+      const div = document.createElement('div');
+      div.className = 'p-3 rounded bg-slate-800/40 border border-slate-800';
+      div.innerHTML =
+        `<div class="text-xs text-slate-400">CPU${i}</div> ` +
+        `<div class="text-lg mono">${pct == null ? '--%' : pct.toFixed(1) + '%'}</div> ` +
+        `<div class="w-full h-1.5 bg-slate-700 rounded mt-2">` +
+        `<div class="h-1.5 bg-sky-500 rounded" style="width:${pct ? clamp(pct, 0, 100) : 0}%"></div>` +
+        `</div>`;
 
-    const div = document.createElement('div');
-    div.className = 'p-3 rounded bg-slate-800/40 border border-slate-800';
-    div.innerHTML =
-      `<div class="text-xs text-slate-400">CPU${i}</div> ` +
-      `<div class="text-lg mono">${pct == null ? '--%' : pct.toFixed(1) + '%'}</div> ` +
-      `<div class="w-full h-1.5 bg-slate-700 rounded mt-2">` +
-      `<div class="h-1.5 bg-sky-500 rounded" style="width:${pct ? clamp(pct, 0, 100) : 0}%"></div>` +
-      `</div>`;
-
-    coresGrid.appendChild(div);
+      coresGrid.appendChild(div);
+    }
   }
 
   state.lastCpu = { total, cores };
 
   if (totalPct == null) totalPct = 0;
-  cpuTotalPct.textContent = fmtPct(totalPct);
+  if(cpuTotalPct) cpuTotalPct.textContent = fmtPct(totalPct);
 
   ringPush(state.series.cpuTotal, totalPct, state.seriesMaxPoints);
   drawLine(cpuChart, state.series.cpuTotal, 100);
 
-  const kbTotal = j.memory?.kb_total ?? null;
-  const kbUsed = j.memory?.kb_used ?? null;
+  const kbTotal = (j.memory && j.memory.kb_total) || null;
+  const kbUsed = (j.memory && j.memory.kb_used) || null;
   const memPct = (kbTotal && kbTotal > 0 && kbUsed != null) ? (kbUsed / kbTotal) * 100 : null;
 
-  memText.textContent = `${bytesHum(kbUsed)} / ${bytesHum(kbTotal)}`;
-  memBar.style.width = `${memPct ? clamp(memPct, 0, 100) : 0}%`;
+  if(memText) memText.textContent = `${bytesHum(kbUsed)} / ${bytesHum(kbTotal)}`;
+  if(memBar) memBar.style.width = `${memPct ? clamp(memPct, 0, 100) : 0}%`;
 
   ringPush(state.series.memPct, memPct || 0, state.seriesMaxPoints);
   drawLine(memChart, state.series.memPct, 100);
 
   const l1 = j.loadavg ? j.loadavg['1'] : null;
-  loadText.textContent = `${l1 ?? '--'} / ${j.loadavg ? j.loadavg['5'] : '--'} / ${j.loadavg ? j.loadavg['15'] : '--'}`;
+  if(loadText) loadText.textContent = `${_nc(l1, '--')} / ${j.loadavg ? j.loadavg['5'] : '--'} / ${j.loadavg ? j.loadavg['15'] : '--'}`;
   ringPush(state.series.load1, l1 || 0, state.seriesMaxPoints);
 
-  const yMaxLoad = Math.max(1, (cores?.length || 1));
+  const yMaxLoad = Math.max(1, (cores ? cores.length : 1));
   drawLine(loadChart, state.series.load1, yMaxLoad);
 
   const g = j.gpus || [];
   if (g.length === 0) {
-    gpuSummary.textContent = '検出なし';
-    gpuCharts.innerHTML = '';
+    if(gpuSummary) gpuSummary.textContent = '検出なし';
+    if(gpuCharts) gpuCharts.innerHTML = '';
   } else {
-    gpuSummary.textContent = g.map(x => `#${x.index} ${x.name} ${x.util_percent ?? '--'}%`).join(' | ');
-    gpuCharts.innerHTML = '';
-    g.forEach((gpu) => {
-      const key = (gpu.vendor || 'gpu') + ':' + (gpu.index ?? gpu.name);
-      if (!state.series.gpu[key]) state.series.gpu[key] = [];
-      ringPush(state.series.gpu[key], gpu.util_percent ?? 0, state.seriesMaxPoints);
+    if(gpuSummary) gpuSummary.textContent = g.map(x => `#${x.index} ${x.name} ${_nc(x.util_percent, '--')}%`).join(' | ');
+    if(gpuCharts) {
+      gpuCharts.innerHTML = '';
+      g.forEach((gpu) => {
+        // ?. ?? の修正
+        const key = (gpu.vendor || 'gpu') + ':' + _nc(gpu.index, gpu.name);
+        if (!state.series.gpu[key]) state.series.gpu[key] = [];
+        ringPush(state.series.gpu[key], _nc(gpu.util_percent, 0), state.seriesMaxPoints);
 
-      const wrap = document.createElement('div');
-      wrap.innerHTML =
-        `<div class="text-xs text-slate-300 mono mb-1">#${gpu.index} ${gpu.name} ${gpu.util_percent ?? '--'}% ${gpu.mem_used_mb != null && gpu.mem_total_mb != null ? `/ ${gpu.mem_used_mb}/${gpu.mem_total_mb} MB` : ''}</div><canvas></canvas>`;
-      gpuCharts.appendChild(wrap);
-      drawLine(wrap.querySelector('canvas'), state.series.gpu[key], 100);
-    });
+        const wrap = document.createElement('div');
+        const memStr = (gpu.mem_used_mb != null && gpu.mem_total_mb != null) ? `/ ${gpu.mem_used_mb}/${gpu.mem_total_mb} MB` : '';
+        wrap.innerHTML =
+          `<div class="text-xs text-slate-300 mono mb-1">#${gpu.index} ${gpu.name} ${_nc(gpu.util_percent, '--')}% ${memStr}</div><canvas></canvas>`;
+        gpuCharts.appendChild(wrap);
+        drawLine(wrap.querySelector('canvas'), state.series.gpu[key], 100);
+      });
+    }
   }
 }
 
@@ -3566,38 +3606,40 @@ function renderProcesses() {
     return dir === 'asc' ? String(va).localeCompare(String(vb)) : String(vb).localeCompare(String(va));
   });
 
-  sortLabel.textContent = `${key} ${dir === 'asc' ? '▲' : '▼'}`;
-  procCount.textContent = `プロセス数: ${arr.length}`;
+  if(sortLabel) sortLabel.textContent = `${key} ${dir === 'asc' ? '▲' : '▼'}`;
+  if(procCount) procCount.textContent = `プロセス数: ${arr.length}`;
 
-  procBody.innerHTML = '';
-  const frag = document.createDocumentFragment();
+  if(procBody) {
+    procBody.innerHTML = '';
+    const frag = document.createDocumentFragment();
 
-  for (const p of arr) {
-    const stopped = ((p.state || '').toUpperCase().indexOf('T') !== -1);
-    const tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-800/50';
-    tr.innerHTML =
-      ` <td class="p-2 mono">${p.pid}</td>` +
-      ` <td class="p-2 truncate" title="${escapeHtml(p.command || '')}">${escapeHtml(p.title || '')}</td>` +
-      ` <td class="p-2">${escapeHtml(p.user || '')}</td>` +
-      ` <td class="p-2 mono">${p.cpu_percent == null ? '--' : p.cpu_percent.toFixed(1)}</td>` +
-      ` <td class="p-2 mono">${p.mem_percent == null ? '--' : p.mem_percent.toFixed(1)}</td>` +
-      ` <td class="p-2 mono">${fmtMiB(p.rss_kb)}</td>` +
-      ` <td class="p-2 mono">${escapeHtml(p.state || '')}</td>` +
-      ` <td class="p-2 mono">${p.nice == null ? '' : p.nice}</td>` +
-      ` <td class="p-2 mono">${p.priority == null ? '' : p.priority}</td>` +
-      ` <td class="p-2 mono">${escapeHtml(p.elapsed || '')}</td>` +
-      ` <td class="p-2"> ` +
-      ` <div class="flex gap-2"> ` +
-      `${(!IS_WINDOWS) ? (stopped ? `<button data-act="CONT" data-pid="${p.pid}" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">再開</button>` : `<button data-act="STOP" data-pid="${p.pid}" class="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">停止</button>`) : ''}` +
-      ` <button data-act="TERM" data-pid="${p.pid}" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs">終了</button>` +
-      ` <button data-act="KILL" data-pid="${p.pid}" class="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-xs">強制終了</button>` +
-      ` </div> </td>`;
+    for (const p of arr) {
+      const stopped = ((p.state || '').toUpperCase().indexOf('T') !== -1);
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-slate-800/50';
+      tr.innerHTML =
+        ` <td class="p-2 mono">${p.pid}</td>` +
+        ` <td class="p-2 truncate" title="${escapeHtml(p.command || '')}">${escapeHtml(p.title || '')}</td>` +
+        ` <td class="p-2">${escapeHtml(p.user || '')}</td>` +
+        ` <td class="p-2 mono">${p.cpu_percent == null ? '--' : p.cpu_percent.toFixed(1)}</td>` +
+        ` <td class="p-2 mono">${p.mem_percent == null ? '--' : p.mem_percent.toFixed(1)}</td>` +
+        ` <td class="p-2 mono">${fmtMiB(p.rss_kb)}</td>` +
+        ` <td class="p-2 mono">${escapeHtml(p.state || '')}</td>` +
+        ` <td class="p-2 mono">${p.nice == null ? '' : p.nice}</td>` +
+        ` <td class="p-2 mono">${p.priority == null ? '' : p.priority}</td>` +
+        ` <td class="p-2 mono">${escapeHtml(p.elapsed || '')}</td>` +
+        ` <td class="p-2"> ` +
+        ` <div class="flex gap-2"> ` +
+        `${(!IS_WINDOWS) ? (stopped ? `<button data-act="CONT" data-pid="${p.pid}" class="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-xs">再開</button>` : `<button data-act="STOP" data-pid="${p.pid}" class="px-2 py-1 rounded bg-amber-600 hover:bg-amber-500 text-xs">停止</button>`) : ''}` +
+        ` <button data-act="TERM" data-pid="${p.pid}" class="px-2 py-1 rounded bg-sky-600 hover:bg-sky-500 text-xs">終了</button>` +
+        ` <button data-act="KILL" data-pid="${p.pid}" class="px-2 py-1 rounded bg-rose-600 hover:bg-rose-500 text-xs">強制終了</button>` +
+        ` </div> </td>`;
 
-    frag.appendChild(tr);
+      frag.appendChild(tr);
+    }
+
+    procBody.appendChild(frag);
   }
-
-  procBody.appendChild(frag);
 }
 
 document.querySelectorAll('thead th[data-key]').forEach(th => {
@@ -3613,26 +3655,32 @@ document.querySelectorAll('thead th[data-key]').forEach(th => {
   });
 });
 
-procBody.addEventListener('click', async (e) => {
-  const btn = e.target.closest('button[data-act]');
-  if (!btn) return;
-  const pid = btn.getAttribute('data-pid');
-  const act = btn.getAttribute('data-act');
-  try {
-    const res = await fetch(`?action=signal&pid=${encodeURIComponent(pid)}&sig=${encodeURIComponent(act)}`, { method: 'POST' });
-    const j = await res.json();
-    btn.title = j.ok ? 'OK' : ('Error: ' + (j.error || ''));
-    setTimeout(() => {
-      if (!state.inFlight) tick();
-    }, 250);
-  } catch { }
-});
+if(procBody) {
+  procBody.addEventListener('click', async (e) => {
+    const btn = e.target.closest('button[data-act]');
+    if (!btn) return;
+    const pid = btn.getAttribute('data-pid');
+    const act = btn.getAttribute('data-act');
+    try {
+      const res = await fetch(`?action=signal&pid=${encodeURIComponent(pid)}&sig=${encodeURIComponent(act)}`, { method: 'POST' });
+      const j = await res.json();
+      btn.title = j.ok ? 'OK' : ('Error: ' + (j.error || ''));
+      setTimeout(() => {
+        if (!state.inFlight) tick();
+      }, 250);
+    } catch { }
+  });
+}
 
 const fm = {
   init() {
     state.fmInit = true;
-    const root = document.getElementById('fm-root').value;
-    document.getElementById('fm-linkto').value = root.replace(/\/?$/, '/') + 'example.atkfm-link';
+    const rootEl = document.getElementById('fm-root');
+    if(rootEl) {
+      const root = rootEl.value;
+      const linkToEl = document.getElementById('fm-linkto');
+      if(linkToEl) linkToEl.value = root.replace(/\/?$/, '/') + 'example.atkfm-link';
+    }
     this.list();
     setFMHeight();
   },
@@ -3640,23 +3688,26 @@ const fm = {
   info(msg, type) {
     const el = document.getElementById('fmInfo');
     if (!el) return;
-    el.textContent = String(msg ?? '');
+    el.textContent = String(_nc(msg, ''));
     const base = 'ml-3 text-base font-medium tracking-wide ';
     const color = type === 'error' ? 'text-rose-300' : type === 'ok' ? 'text-emerald-300' : 'text-slate-100';
     el.className = base + color;
   },
 
   debug(msg) {
-    document.getElementById('fmDebug').textContent = msg || '';
+    const dbg = document.getElementById('fmDebug');
+    if(dbg) dbg.textContent = msg || '';
   },
 
   async list() {
-    const root = document.getElementById('fm-root').value;
+    const rootEl = document.getElementById('fm-root');
+    if(!rootEl) return;
+    const root = rootEl.value;
     if (root.slice(-1) !== '/' && !/\.(zip|7z)$/i.test(root)) {
-      document.getElementById('fm-root').value = root + '/';
+      rootEl.value = root + '/';
     }
     try {
-      const url = `?ajax-typeof=get-directory&ajax-option=${encodeURIComponent(document.getElementById('fm-root').value)}`;
+      const url = `?ajax-typeof=get-directory&ajax-option=${encodeURIComponent(rootEl.value)}`;
       const res = await fetch(url, { cache: 'no-store' });
       const data = await res.json();
       this.renderList(data);
@@ -3668,6 +3719,7 @@ const fm = {
   renderList(e) {
     // ここは無理やり詰め込んだのであとで綺麗にしたい
     const box = document.getElementById('fm-list');
+    if(!box) return;
     box.innerHTML = '';
 
     if (e['atk-fm-error']) {
@@ -3737,9 +3789,11 @@ const fm = {
   },
 
   async up() {
-    const root = document.getElementById('fm-root').value.replace(/\/$/, '');
+    const rootEl = document.getElementById('fm-root');
+    if(!rootEl) return;
+    const root = rootEl.value.replace(/\/$/, '');
     const up = root.substring(0, root.lastIndexOf('/')) || '/';
-    document.getElementById('fm-root').value = up.endsWith('/') ? up : up + '/';
+    rootEl.value = up.endsWith('/') ? up : up + '/';
     this.list();
   },
 
@@ -3810,6 +3864,7 @@ const fm = {
     const totalParts = Math.ceil(f.size / chunk);
     for (let i = 0; i < totalParts; i++) {
       const body = new FormData();
+      // file.sliceは古いブラウザでも大抵OK
       body.append('data', f.slice(i * chunk, (i + 1) * chunk));
       body.append('filename', f.name);
       try {
@@ -3864,7 +3919,8 @@ const fm = {
     const path = btn.getAttribute('data-path');
 
     if (act === 'cd') {
-      document.getElementById('fm-root').value = path.endsWith('/') ? path : (/\.(zip|7z)$/i.test(path) ? path : path + '/');
+      const rootEl = document.getElementById('fm-root');
+      rootEl.value = path.endsWith('/') ? path : (/\.(zip|7z)$/i.test(path) ? path : path + '/');
       this.list();
     } else if (act === 'rmdir') {
       if (!confirm('ディレクトリを削除しますか？')) return;
@@ -3928,8 +3984,8 @@ const fm = {
     const box = document.getElementById('fm-actions');
     const encPath = encodeURIComponent(path);
 
-    const linkBtn = (label, href, extra = '') => `<a class="atkfm-underline atkfm-btn w-full ${extra}" href="${href}" target="_blank" rel="noopener noreferrer" onclick="fm.closeModal()">${label}</a>`;
-    const actBtn = (label, handler, extra = '') => `<button class="atkfm-btn w-full ${extra}" onclick="fm.closeModal(); ${handler}">${label}</button>`;
+    const linkBtn = (label, href, extra) => `<a class="atkfm-underline atkfm-btn w-full ${extra||''}" href="${href}" target="_blank" rel="noopener noreferrer" onclick="fm.closeModal()">${label}</a>`;
+    const actBtn = (label, handler, extra) => `<button class="atkfm-btn w-full ${extra||''}" onclick="fm.closeModal(); ${handler}">${label}</button>`;
 
     box.innerHTML = [
       linkBtn('開く', `?ajax-typeof=get-item&ajax-option=${encPath}`, 'atkfm-btn--accent'),
@@ -4014,7 +4070,8 @@ const fm = {
   }
 };
 
-document.getElementById('fm-list').addEventListener('click', (e) => fm.handleListClick(e));
+const fmList = document.getElementById('fm-list');
+if(fmList) fmList.addEventListener('click', (e) => fm.handleListClick(e));
 
 const cfg = {
   hasPassword: false,
@@ -4056,13 +4113,13 @@ const cfg = {
 
       const info = document.getElementById('cfg-run-root-info');
       if (info) info.textContent = this.runAsRoot ? '現在: root 権限で動作（tmux/シェル）' : '現在: 通常権限で動作';
-    } catch {
+    } catch (e) {
       const passInfo = document.getElementById('cfg-pass-info');
       if (passInfo) passInfo.textContent = '設定の取得に失敗しました。';
     }
   },
 
-  async savePassword(clear = false) {
+  async savePassword(clear) {
     const info = document.getElementById('cfg-pass-info');
     if (info) info.textContent = '保存中...';
 
@@ -4134,10 +4191,17 @@ const cfg = {
   },
 };
 
-document.getElementById('cfg-pass-save').addEventListener('click', () => cfg.savePassword(false));
-document.getElementById('cfg-pass-clear').addEventListener('click', () => cfg.savePassword(true));
-document.getElementById('cfg-ip-save').addEventListener('click', () => cfg.saveIp());
-document.getElementById('cfg-ip-add-self').addEventListener('click', () => {
+const passSave = document.getElementById('cfg-pass-save');
+if(passSave) passSave.addEventListener('click', () => cfg.savePassword(false));
+
+const passClear = document.getElementById('cfg-pass-clear');
+if(passClear) passClear.addEventListener('click', () => cfg.savePassword(true));
+
+const ipSave = document.getElementById('cfg-ip-save');
+if(ipSave) ipSave.addEventListener('click', () => cfg.saveIp());
+
+const ipAddSelf = document.getElementById('cfg-ip-add-self');
+if(ipAddSelf) ipAddSelf.addEventListener('click', () => {
   if (!cfg.me) return;
   const ta = document.getElementById('cfg-ip-allow');
   const lines = ta.value.split(/\r?\n/);
@@ -4146,6 +4210,7 @@ document.getElementById('cfg-ip-add-self').addEventListener('click', () => {
     ta.value = lines.join('\n');
   }
 });
+
 const cbRootEl = document.getElementById('cfg-run-root');
 if (cbRootEl) cbRootEl.addEventListener('change', () => cfg.saveRunRoot());
 
@@ -4164,7 +4229,9 @@ function setFMHeight() {
   const wrap = document.querySelector('#pageFiles .atkfm-wrap');
   if (!wrap) return;
   const rect = wrap.getBoundingClientRect();
-  const top = rect.top + window.scrollY;
+  // 古いiOSだとwindow.scrollYが変なことがあるので念の為
+  const scrollY = window.pageYOffset || document.documentElement.scrollTop || document.body.scrollTop || 0;
+  const top = rect.top + scrollY;
   const inner = window.innerHeight;
   const bottomPadding = 16;
   const h = Math.max(240, inner - rect.top - bottomPadding);
@@ -4201,13 +4268,14 @@ const term = {
   fontSize: parseInt(localStorage.getItem('atkfm_term_font') || '14', 10),
 
   _log(...a){ if (window.ATKFM_DEBUG) console.debug('[term]', ...a); },
-  _err(m){ console.error(m); try{ this.xterm?.writeln('\r\n\x1b[31m[ERROR]\x1b[0m '+m);}catch{} },
+  _err(m){ console.error(m); try{ if(this.xterm) this.xterm.writeln('\r\n\x1b[31m[ERROR]\x1b[0m '+m);}catch(e){} },
 
   _readCookie(name){
-    return decodeURIComponent((document.cookie.split('; ').find(s=>s.startsWith(name+'='))||'')
+    return decodeURIComponent((document.cookie.split('; ').find(s=>s.indexOf(name+'=')===0)||'')
       .split('=').slice(1).join('=')||'');
   },
-  async _ensureCsrfReady(deadlineMs=2000){
+  async _ensureCsrfReady(deadlineMs){
+    deadlineMs = deadlineMs || 2000;
     const t0 = performance.now();
     while (!this._readCookie('ATKFM_CSRF') && (performance.now()-t0) < deadlineMs){
       await new Promise(r=>setTimeout(r, 25));
@@ -4219,27 +4287,36 @@ const term = {
     this.__csrf = { token, headerName: 'X-CSRF-Token' };
     return this.__csrf;
   },
-  _withCsrfHeaders(h = {}){
+  _withCsrfHeaders(h){
+    h = h || {};
     const {token, headerName} = this._csrf();
-    const headers = { 'X-Requested-With':'XMLHttpRequest', ...h };
+    const headers = { 'X-Requested-With':'XMLHttpRequest' };
+    Object.keys(h).forEach(k=>headers[k]=h[k]);
     if (token) headers[headerName] = token;
     return headers;
   },
-  async _fetchJSON(url, opts={}, timeoutMs=10000){
-    const ac = new AbortController();
-    const timer = setTimeout(()=>ac.abort(), timeoutMs);
+  async _fetchJSON(url, opts, timeoutMs){
+    opts = opts || {};
+    timeoutMs = timeoutMs || 10000;
+    
+    let ac;
+    if(typeof AbortController !== 'undefined') ac = new AbortController();
+    
+    const timer = setTimeout(()=>{ if(ac) ac.abort(); }, timeoutMs);
     const isPost = String((opts.method||'GET')).toUpperCase()==='POST';
     if (isPost) await this._ensureCsrfReady();
     try{
-      const r = await fetch(url, {
+      const fOpts = {
         credentials:'same-origin',
         cache:'no-store',
         ...opts,
-        headers: this._withCsrfHeaders(opts.headers||{}),
-        signal: ac.signal
-      });
+        headers: this._withCsrfHeaders(opts.headers||{})
+      };
+      if(ac) fOpts.signal = ac.signal;
+
+      const r = await fetch(url, fOpts);
       const ct = (r.headers.get('content-type')||'').toLowerCase();
-      if (!ct.includes('application/json')) throw new Error('bad content-type: '+ct);
+      if (ct.indexOf('application/json') === -1) throw new Error('bad content-type: '+ct);
       let j = await r.json();
 
       if (!j.ok && j.error === 'bad csrf token' && isPost && !opts._retried){
@@ -4249,12 +4326,12 @@ const term = {
       return j;
     } finally { clearTimeout(timer); }
   },
-  async _fetchJSONForm(url, formData, timeoutMs=10000){
+  async _fetchJSONForm(url, formData, timeoutMs){
     return await this._fetchJSON(url, {method:'POST', body: formData}, timeoutMs);
   },
 
   _renderCapture(out_b64, cy, cx, h, w){
-    const raw = base64ToUtf8(out_b64).replace(/\x1c|\x1d|\x1e|\x1f|\x0c/g, ''); // \x0c は既存同様、他の不可視制御も念のため除去
+    const raw = base64ToUtf8(out_b64).replace(/\x1c|\x1d|\x1e|\x1f|\x0c/g, ''); 
     const lines = raw.split('\n');
 
     const height = Math.max(1, h|0);
@@ -4263,7 +4340,7 @@ const term = {
     let esc = '\x1b[0m\x1b[H\x1b[2J';
 
     for (let i = 0; i < height; i++){
-      const ln = lines[i] ?? '';
+      const ln = lines[i] !== undefined ? lines[i] : '';
       const clipped = ln.length > width ? ln.slice(0, width) : ln;
       esc += `\x1b[${i+1};1H${clipped}\x1b[0m\x1b[K`;
     }
@@ -4324,12 +4401,24 @@ const term = {
         try{ this.fit.fit(); } finally { this._maybeResizePost(); }
       });
     };
-    new ResizeObserver(onResize).observe(wrapEl);
+    
+    // ResizeObserver対応
+    if(typeof ResizeObserver !== 'undefined') {
+        new ResizeObserver(onResize).observe(wrapEl);
+    } else {
+        window.addEventListener('resize', onResize);
+    }
+    
     window.addEventListener('orientationchange', onResize);
     document.addEventListener('visibilitychange', ()=>{ if (!document.hidden) onResize(); });
 
     window.addEventListener('error', e=>this._err(String(e.error||e.message||'error')));
-    window.addEventListener('unhandledrejection', e=>this._err('Promise rejection: '+(e.reason?.message||e.reason||'unknown')));
+    window.addEventListener('unhandledrejection', e=>{
+        // ?. の修正
+        const r = e.reason;
+        const msg = (r && r.message) || r || 'unknown';
+        this._err('Promise rejection: '+msg);
+    });
   },
 
   bindUI(){
@@ -4364,7 +4453,7 @@ const term = {
   },
   async _tryOpenTmux(){
     try{
-      const cols = this.xterm.cols || 120, rows = this.xterm.rows || 30;
+      const cols = (this.xterm && this.xterm.cols) || 120, rows = (this.xterm && this.xterm.rows) || 30;
       const body = new FormData(); body.append('cols', String(cols)); body.append('rows', String(rows));
       const j = await this._fetchJSONForm('?action=term2-open', body);
       if (!j.ok) return false;
@@ -4385,7 +4474,7 @@ const term = {
 
   async _refreshTmuxTabs(){
     const j = await this._fetchJSON('?action=term2-list', {method:'GET'}).catch(e=>this._err('list tabs: '+e.message));
-    if (j?.ok) this.tabs = j.tabs||[];
+    if (j && j.ok) this.tabs = j.tabs||[];
     this._renderTabs();
   },
 
@@ -4451,8 +4540,8 @@ const term = {
         const j = await this._fetchJSON(`?action=term2-read&sid=${encodeURIComponent(this.active)}&mode=screen`, {method:'GET'});
         if (!j.ok){ this._err(j.error||'read failed'); return; }
 
-        const wantCols = (this.xterm?.cols|0) || 120;
-        const wantRows = (this.xterm?.rows|0) || 30;
+        const wantCols = (this.xterm && this.xterm.cols|0) || 120;
+        const wantRows = (this.xterm && this.xterm.rows|0) || 30;
         if (((j.w|0) !== wantCols) || ((j.h|0) !== wantRows)) {
           await this._maybeResizePost();
         }
@@ -4496,10 +4585,10 @@ const term = {
       this.xterm.writeln('** (c) 2025 ActiveTK. All rights reserved.');
       this.xterm.writeln('**********************************************************************\r\n');
       sessionStorage.setItem(key, '1');
-    }catch{}
+    }catch(e){}
   },
 
-  async _enterBasicMode(resetOutput=false){
+  async _enterBasicMode(resetOutput){
     this.mode='basic';
     this._stopPollingTmux();
     this.tabs=[]; this.active=null; this.lastScreenB64='';
@@ -4508,9 +4597,9 @@ const term = {
       try{
         const fd = new FormData(); fd.append('label','basic');
         const j = await this._fetchJSONForm('?action=term-open', fd);
-        if (j.ok){ this.basicSid=j.sid; this.basicCwd=j.tab?.cwd||'/'; }
+        if (j.ok){ this.basicSid=j.sid; this.basicCwd=(j.tab && j.tab.cwd)||'/'; }
         else { this.basicSid=null; this.basicCwd='/'; }
-      }catch{ this.basicSid=null; this.basicCwd='/'; }
+      }catch(e){ this.basicSid=null; this.basicCwd='/'; }
     }
 
     if (resetOutput) this.xterm.reset();
@@ -4549,19 +4638,19 @@ const term = {
         body: JSON.stringify({
           sid:this.basicSid||'',
           input:cmd,
-          cols:this.xterm.cols||120,
-          rows:this.xterm.rows||30
+          cols:(this.xterm && this.xterm.cols)||120,
+          rows:(this.xterm && this.xterm.rows)||30
         })
       });
 
-      if (j?.ok){
+      if (j && j.ok){
         if (typeof j.out==='string' && j.out.length){
           this.xterm.write(j.out.replace(/\n/g,'\r\n'));
           if (!/\r?\n$/.test(j.out)) this.xterm.write('\r\n');
         }
         if (j.cwd) this.basicCwd = j.cwd;
       } else {
-        this._err(j?.error||'command failed');
+        this._err((j && j.error)||'command failed');
       }
     } catch(e){
       this._err('network error: '+e.message);
@@ -4571,7 +4660,8 @@ const term = {
   },
 
   async _handleBasicInput(data){
-    for (const ch of data){
+    for (let i = 0; i < data.length; i++){
+      const ch = data[i];
       const code = ch.charCodeAt(0);
 
       if (ch === '\r' || ch === '\n'){
@@ -4596,7 +4686,7 @@ const term = {
             headers:{'Content-Type':'application/json'},
             body: JSON.stringify({ sid:this.basicSid||'' })
           });
-        }catch{}
+        }catch(e){}
         continue;
       }
 
@@ -4629,15 +4719,15 @@ const term = {
   async newTab(){
     this.initOnce();
     if (this.mode!=='tmux'){
-      this.xterm.writeln('\r\n[INFO] 複数タブは tmux が必要です。');
+      if(this.xterm) this.xterm.writeln('\r\n[INFO] 複数タブは tmux が必要です。');
       return;
     }
     try{
       const body = new FormData();
-      body.append('cols', String(this.xterm.cols||120));
-      body.append('rows', String(this.xterm.rows||30));
+      body.append('cols', String((this.xterm && this.xterm.cols)||120));
+      body.append('rows', String((this.xterm && this.xterm.rows)||30));
       const j = await this._fetchJSONForm('?action=term2-open', body);
-      if (j?.ok){
+      if (j && j.ok){
         await this._refreshTmuxTabs();
         this.active = j.sid;
         this.lastScreenB64 = '';
@@ -4646,7 +4736,7 @@ const term = {
         this._startPollingTmux();
         this._maybeResizePost();
       } else {
-        this._err(j?.error||'open failed');
+        this._err((j && j.error)||'open failed');
       }
     }catch(e){ this._err('open error: '+e.message); }
   }
